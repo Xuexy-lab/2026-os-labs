@@ -44,6 +44,7 @@ BSS 清零 → SBI 输出 → 无限循环
 make          # 编译
 make qemu     # 运行
 make debug    # 启动调试模式
+make gdb      # 打开调试器
 ```
 
 ## 项目目录
