@@ -200,8 +200,8 @@ OpenSBI 控制台服务
 - 跟踪 QEMU 模拟的 RISC-V 从加电开始，直到执行内核第一条指令（跳转到 0x80200000）的整个过程。
 - RISC-V 硬件加电后最初执行的几条指令位于什么地址？它们主要完成了哪些功能？请在报告中简要记录你的调试过程、观察结果和问题的答案。
 ### 实验结果：
-![alt text](f40da7938169e48eed804ed6a3c55713.png)
-![alt text](02c953c9a3b01aeaaba4f6a6e035e62a.png)
+![alt text](images/debug.png)
+![alt text](images/qemu.png)
 
 ### 调试过程与观察结果：
 - 开始调试，CPU从复位地址开始执行OpenSBI的固件初始化
