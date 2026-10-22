@@ -35,6 +35,8 @@ struct Page {
     int ref;                        // page frame's reference counter
     uint64_t flags;                 // array of flags that describe the status of the page frame
     unsigned int property;          // the num of free block, used in first fit pm manager
+    int u;                         // Buddy only: head order [0,31]; -1 for managed non-heads.
+                                   // Reserved pages have no valid u; fit managers ignore it.
     list_entry_t page_link;         // free list link
 };
 

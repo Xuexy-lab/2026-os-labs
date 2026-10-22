@@ -3,7 +3,122 @@
 #include <best_fit_pmm.h>
 #include <stdio.h>
 
-//lab2 function2-2 YOUR CODE
+//lab2 function2-2 2513447
+
+static free_area_t free_area;
+
+#define free_list (free_area.free_list)
+#define nr_free (free_area.nr_free)
+
+static void
+best_fit_init(void) {
+    list_init(&free_list);
+    nr_free = 0;
+}
+
+// 按地址插入空闲块，方便回收时检查前后相邻的块。
+static void
+best_fit_insert_block(struct Page *base) {
+    list_entry_t *le = list_next(&free_list);
+    while (le != &free_list) {
+        if (base < le2page(le, page_link)) {
+            break;
+        }
+        le = list_next(le);
+    }
+    list_add_before(le, &base->page_link);
+}
+
+static void
+best_fit_init_memmap(struct Page *base, size_t n) {
+    assert(n > 0);
+    for (struct Page *p = base; p != base + n; p++) {
+        assert(PageReserved(p));
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
+    }
+    base->property = n;
+    SetPageProperty(base);
+    nr_free += n;
+    best_fit_insert_block(base);
+}
+
+static struct Page *
+best_fit_alloc_pages(size_t n) {
+    assert(n > 0);
+    if (n > nr_free) {
+        return NULL;
+    }
+
+    // 找到所有够用的块中最小的一个；同样大时保留先找到的块。
+    struct Page *page = NULL;
+    list_entry_t *le = &free_list;
+    while ((le = list_next(le)) != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (p->property >= n &&
+            (page == NULL || p->property < page->property)) {
+            page = p;
+        }
+    }
+    if (page == NULL) {
+        return NULL;
+    }
+
+    list_entry_t *prev = list_prev(&page->page_link);
+    list_del(&page->page_link);
+    if (page->property > n) {
+        struct Page *remaining = page + n;
+        remaining->property = page->property - n;
+        SetPageProperty(remaining);
+        list_add(prev, &remaining->page_link);
+    }
+    page->property = 0;
+    ClearPageProperty(page);
+    nr_free -= n;
+    return page;
+}
+
+static void
+best_fit_free_pages(struct Page *base, size_t n) {
+    assert(n > 0);
+    for (struct Page *p = base; p != base + n; p++) {
+        assert(!PageReserved(p) && !PageProperty(p));
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
+    }
+    base->property = n;
+    SetPageProperty(base);
+    nr_free += n;
+    best_fit_insert_block(base);
+
+    // 先向前合并，再检查合并后的块能否与后面的块连起来。
+    list_entry_t *le = list_prev(&base->page_link);
+    if (le != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (p + p->property == base) {
+            p->property += base->property;
+            base->property = 0;
+            ClearPageProperty(base);
+            list_del(&base->page_link);
+            base = p;
+        }
+    }
+    le = list_next(&base->page_link);
+    if (le != &free_list) {
+        struct Page *p = le2page(le, page_link);
+        if (base + base->property == p) {
+            base->property += p->property;
+            p->property = 0;
+            ClearPageProperty(p);
+            list_del(&p->page_link);
+        }
+    }
+}
+
+static size_t
+best_fit_nr_free_pages(void) {
+    return nr_free;
+}
 
 // Framework tests: students must not modify basic_check or best_fit_check.
 static void
@@ -136,3 +251,13 @@ best_fit_check(void) {
     cprintf("grading: %d / %d points\n", score, sumscore);
     #endif
 }
+
+const struct pmm_manager best_fit_pmm_manager = {
+    .name = "best_fit_pmm_manager",
+    .init = best_fit_init,
+    .init_memmap = best_fit_init_memmap,
+    .alloc_pages = best_fit_alloc_pages,
+    .free_pages = best_fit_free_pages,
+    .nr_free_pages = best_fit_nr_free_pages,
+    .check = best_fit_check,
+};
