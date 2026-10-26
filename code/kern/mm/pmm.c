@@ -63,66 +63,103 @@ size_t nr_free_pages(void) {
     return pmm_manager->nr_free_pages();
 }
 
-//lab2 function1 2510943
+//lab2 function1 YOUR CODE
+/* page_init - probe the physical memory from the device tree, build the Page
+ * descriptor array and register every complete free physical page to the
+ * current pmm manager.
+ *
+ * Memory layout (physical addresses; `end`/`pages` are kernel VAs, translate
+ * them with PADDR() to obtain the physical addresses shown below):
+ *   [DRAM_BASE, KERNEL_BEGIN_PADDR)    OpenSBI               -> reserved
+ *   [KERNEL_BEGIN_PADDR, end_pa)       kernel image          -> reserved
+ *   [pages_pa, descriptor_end)         Page descriptor array -> reserved
+ *   [freemem, npage*PGSIZE)            complete free pages   -> init_memmap
+ *
+ * Everything below freemem (OpenSBI, kernel, descriptors and the page-alignment
+ * gap) stays reserved.
+ */
 static void page_init(void) {
     extern char end[];
 
-    uint64_t mem_begin = get_memory_base();
-    uint64_t mem_size  = get_memory_size();
-    uint64_t mem_end   = mem_begin + mem_size;
+    uint64_t mem_base = get_memory_base();
+    uint64_t mem_size = get_memory_size();
 
-    // Case 2: reject zero size, address overflow, or a base that does not match
-    // the fixed DRAM_BASE before using the device-tree information.
-    if (mem_size == 0 || mem_end < mem_begin || mem_begin != DRAM_BASE) {
-        panic("page_init: invalid physical memory info from device tree");
+    // The kernel image is loaded at PA KERNEL_BEGIN_PADDR and mapped at VA
+    // KERNBASE, so every kernel VA maps to its PA via VA - PHYSICAL_MEMORY_OFFSET.
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+
+    // The device tree must report exactly the fixed DRAM base; any other base is
+    // incompatible with the kernel's fixed loading layout.
+    if (mem_base != DRAM_BASE || mem_size == 0) {
+        panic("page_init: incompatible memory layout (base=0x%lx, size=0x%lx)",
+              (unsigned long)mem_base, (unsigned long)mem_size);
+    }
+    uint64_t mem_end = mem_base + mem_size;
+    if (mem_end < mem_base) {  // address overflow
+        panic("page_init: memory range overflow");
     }
 
-    // Case 3: clamp the managed range to the supported physical memory bound.
+    // Respect the kernel's supported physical-memory upper bound: never manage
+    // pages beyond the mapped/addressable range.
     if (mem_end > PHYSICAL_MEMORY_END) {
+        cprintf("page_init: memory end 0x%lx exceeds PHYSICAL_MEMORY_END, clamping\n",
+                (unsigned long)mem_end);
         mem_end = PHYSICAL_MEMORY_END;
     }
 
-    // The kernel is linked at KERNBASE and loaded at KERNEL_BEGIN_PADDR, so
-    // PADDR() subtracts this offset from a kernel virtual address.
-    va_pa_offset = KERNBASE - KERNEL_BEGIN_PADDR;
-
-    // Descriptors cover physical page numbers [nbase, npage).
-    npage = PPN(mem_end);
-
-    // Place the page descriptor array right after the kernel image, page aligned.
-    pages = (struct Page *)ROUNDUP((uintptr_t)end, PGSIZE);
-
-    // Case 4: the descriptor array must lie entirely inside the valid memory.
-    uintptr_t pages_pa     = PADDR(pages);
-    uintptr_t pages_end_pa = pages_pa + (npage - nbase) * sizeof(struct Page);
-    if (pages_end_pa > mem_end) {
-        panic("page_init: no enough memory for page descriptor array");
+    // The (possibly clamped) range must still cover the kernel image.
+    if (mem_end <= KERNEL_BEGIN_PADDR) {
+        panic("page_init: memory does not cover the kernel image (end=0x%lx)",
+              (unsigned long)mem_end);
     }
 
-    // Initialize every descriptor and mark all pages reserved first; the pmm
-    // manager later clears the reserved flag and rebuilds fields for free pages.
-    size_t i;
-    for (i = 0; i < npage - nbase; i++) {
-        pages[i].flags = 0;
-        pages[i].property = 0;
-        set_page_ref(&pages[i], 0);
-        SetPageReserved(&pages[i]);
+    // npage is the exclusive upper bound of the managed physical page numbers;
+    // pages[0] describes PPN nbase, so the array covers PPN in [nbase, npage).
+    npage = mem_end / PGSIZE;
+    if (npage <= nbase) {
+        panic("page_init: no manageable physical memory");
     }
 
-    // Case 5: only complete unused pages after the descriptor array are free.
-    uintptr_t free_pa = ROUNDUP(pages_end_pa, PGSIZE);
-    if (free_pa < (uintptr_t)npage * PGSIZE) {
-        size_t n = ((uintptr_t)npage * PGSIZE - free_pa) >> PGSHIFT;
-        init_memmap(pa2page(free_pa), n);
+    // Place the descriptor array right after the kernel image, page-aligned.
+    pages = (struct Page *)ROUNDUP((void *)end, PGSIZE);
+
+    // Check the descriptor array fits before writing it, so a too-large array
+    // never causes an out-of-bounds write followed by a panic.
+    uintptr_t descriptor_end =
+        PADDR((uintptr_t)pages + sizeof(struct Page) * (npage - nbase));
+    if (descriptor_end > mem_end) {
+        panic("page_init: not enough memory for page descriptors");
+    }
+
+    // Give every descriptor a well-defined state and reserve it. Free pages are
+    // unreserved and finalized later by init_memmap().
+    for (size_t i = 0; i < npage - nbase; i++) {
+        struct Page *p = pages + i;
+        p->ref = 0;
+        p->flags = 0;
+        p->property = 0;
+        SetPageReserved(p);
+    }
+
+    // Free memory is [freemem, npage*PGSIZE): only complete pages after the
+    // descriptor array. npage*PGSIZE (== ROUNDDOWN(mem_end, PGSIZE)) drops any
+    // trailing partial page, so a partial page is never handed to the allocator.
+    uintptr_t freemem = ROUNDUP(descriptor_end, PGSIZE);
+    uintptr_t managed_end = (uintptr_t)npage * PGSIZE;
+
+    // Register the contiguous run of complete free pages. They are still marked
+    // reserved here, which matches the allocator's contract: init_memmap()
+    // asserts the pages are reserved and then clears their flags.
+    if (freemem < managed_end) {
+        size_t free_base = PPN(freemem) - nbase;
+        init_memmap(pages + free_base, npage - nbase - free_base);
     }
 
     cprintf("physical memory: base=0x%lx size=0x%lx end=0x%lx\n",
-            (unsigned long)mem_begin, (unsigned long)mem_size,
+            (unsigned long)mem_base, (unsigned long)mem_size,
             (unsigned long)mem_end);
-
     cprintf("page_init: npage=0x%lx pages=0x%016lx freemem=0x%lx\n",
-            (unsigned long)npage, (unsigned long)(uintptr_t)pages,
-            (unsigned long)free_pa);
+            (unsigned long)npage, (uintptr_t)pages, (unsigned long)freemem);
 }
 
 /* pmm_init - initialize the physical memory management */
