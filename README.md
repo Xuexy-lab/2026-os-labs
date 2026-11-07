@@ -41,16 +41,12 @@ Makefile 默认使用 `riscv64-unknown-elf-` 工具链前缀和 `qemu-system-ris
 │   ├── libs/              # 公共库
 │   ├── tools/             # 链接脚本、调试与 Lab3 评测
 │   └── Makefile
-├── report/
-│   ├── report.md          # Lab3 实验报告
-│   ├── prompt.md          # Lab3 提示词汇总
-│   ├── prompt/            # 独立提示词
-│   └── images/            # 报告图片与截图
-└── inherited/lab2/code/  # 从基点继承的 Lab2 专属工程文件
+└── report/
+    ├── report.md          # Lab3 实验报告
+    ├── prompt.md          # Lab3 提示词汇总
+    ├── prompt/            # 独立提示词
+    └── images/            # 报告图片与截图
 ```
-
-`report/images/` 和 `report/prompt/` 同时保留了基点已有的 Lab2 图片与提示词。Lab3 对应文件由报告及提示词汇总直接链接。
 
 - [实验报告](report/report.md)
 - [提示词汇总](report/prompt.md)
-
