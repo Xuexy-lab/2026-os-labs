@@ -1,79 +1,56 @@
-# 2026-os-labs
-## 大二上操作系统实验作业汇总
-### 文件分布说明：
-- 一个分支对应一次实验，并以 `labx` 命名，例如 `lab1`、`lab2`。
-- 每个分支包含 `code` 和 `report` 两个文件夹。
-- `code`：对应实验实现后的代码。
-- `report`：实验报告 `report.md`、汇总提示词 `prompt.md`，以及测试截图目录 `images/`。
+# Lab3 — uCore 中断与异常处理
 
-# Lab2 — 物理内存和页表
+本仓库每次操作系统实验使用独立分支。Lab3 的工程位于 `code/`，实验报告、提示词和截图位于 `report/`。
 
 ## 实验内容
 
-在 Lab1 内核启动的基础上，完成物理内存初始化与分配，并通过调试理解 RISC-V Sv39 地址转换，主要包括：
+- **Trap 入口与返回**。通过 `stvec` 注册统一入口，由 `trapentry.S` 将现场保存到栈上的 `trapframe`，处理结束后恢复寄存器并执行 `sret`。
+- **时钟中断**。`trap.c` 根据 `scause` 分发 Trap。S 态时钟中断会安排下一次时钟事件并累加 `ticks`，每 100 次输出一次计数信息。
+- **异常处理**。断点和非法指令异常会打印触发地址，根据实验涉及的 16 位或 32 位指令长度推进 `tf->epc`，由统一返回流程跳过触发指令。
 
-- 通过设备树探测物理内存，初始化 `Page` 描述符并登记可分配物理页。
-- 分析 First-Fit，实现 Best-Fit 连续物理页分配与回收。
-- 实现 Buddy System，完成按阶分配、块拆分及伙伴合并。
-- 扩展简化 SLUB，在 Buddy 之上通过 `kmalloc`、`kfree` 管理不同大小的内存对象。
-- 使用双 GDB 调试 QEMU 与 uCore，观察 `satp`、页表项及 Sv39 地址转换过程。
-
-## 内存管理流程
+## 处理流程
 
 ```text
-设备树提供 RAM 范围
-    ↓
-page_init：建立 Page 描述符，保留已占用页面
-    ↓
-pmm_manager：注册并管理空闲物理页
-    ↓
-页级分配：First-Fit / Best-Fit / Buddy System
-    ↓
-Buddy + SLUB：页块管理 → 按字节分配和释放对象
+中断或异常 → stvec → __alltraps → SAVE_ALL
+  → trap() → trap_dispatch() → 中断或异常处理函数
+  → RESTORE_ALL → sret
 ```
-
-当前代码在 `kern/mm/pmm.c` 中选择 `slub_pmm_manager`，由 Buddy 提供底层物理页管理，并依次执行 Buddy 与 SLUB 自检。
 
 ## 运行与调试
 
-准备 Linux / WSL、RISC-V 交叉工具链、QEMU 与 GDB，在 `code/` 目录执行：
+准备 RISC-V 裸机工具链、QEMU、GNU Make 和 Python 3，在 Linux 或 WSL 的 `code/` 目录执行：
 
 ```bash
-make          # 编译
-make qemu     # 运行
-make debug    # 启动调试模式
-make gdb      # 连接内核调试器
-make grade    # 执行评分脚本
+make          # 构建内核
+make qemu     # 启动并观察时钟中断输出
+make grade    # 运行实验评测
+make debug    # 启动 QEMU 并等待 GDB
+make gdb      # 在另一终端连接 GDB
 ```
 
-`Makefile` 中的默认 QEMU 路径对应本地实验环境，其他环境可通过命令行覆盖：
+Makefile 默认使用 `riscv64-unknown-elf-` 工具链前缀和 `qemu-system-riscv64`。可通过 `make GCCPREFIX=<前缀> QEMU=<可执行文件路径>` 覆盖编译工具和 QEMU。使用 `make gdb` 时，确保 `riscv64-unknown-elf-gdb` 在 PATH 中。
 
-```bash
-make qemu QEMU=/path/to/qemu-system-riscv64
-make debug QEMU=/path/to/qemu-system-riscv64
-```
-
-报告记录了物理页初始化、Best-Fit、Buddy 的运行截图、Best-Fit 评分结果，以及 Sv39 地址转换调试：虚拟地址 `0xffffffffc0204000` 通过 1 GiB 大页映射到物理地址 `0x80204000`。具体测试条件与结果见实验报告。
+报告附有 QEMU 和评测截图。评测脚本覆盖 Trap 入口与断点返回、非法指令与异常分发，以及持续的时钟中断。
 
 ## 项目目录
 
 ```text
-lab2/
-├── README.md
-├── code/                  # 实验代码与本地构建产物
-│   ├── kern/              # 内核、物理内存分配器与 SLUB
-│   ├── libs/              # 公共库与 RISC-V 支持
-│   ├── tools/             # 链接、调试与测试工具
-│   ├── bin/               # 本地内核镜像
-│   ├── obj/               # 本地编译及反汇编产物
+.
+├── code/
+│   ├── kern/              # 内核，包括 Trap、时钟与内存管理
+│   ├── libs/              # 公共库
+│   ├── tools/             # 链接脚本、调试与 Lab3 评测
 │   └── Makefile
-└── report/
-    ├── report.md          # 实验报告
-    ├── prompt.md          # 本实验提示词汇总
-    ├── prompt/            # 保留的分模块提示词
-    └── images/            # 实验报告图片与测试截图
+├── report/
+│   ├── report.md          # Lab3 实验报告
+│   ├── prompt.md          # Lab3 提示词汇总
+│   ├── prompt/            # 独立提示词
+│   └── images/            # 报告图片与截图
+└── inherited/lab2/code/  # 从基点继承的 Lab2 专属工程文件
 ```
 
-## 参考
+`report/images/` 和 `report/prompt/` 同时保留了基点已有的 Lab2 图片与提示词。Lab3 对应文件由报告及提示词汇总直接链接。
 
-详细实现、测试截图与双 GDB 调试过程见 [实验报告](report/report.md)，AI 协作记录见 [提示词汇总](report/prompt.md)。
+- [实验报告](report/report.md)
+- [提示词汇总](report/prompt.md)
+

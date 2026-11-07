@@ -1,7 +1,5 @@
 #include <default_pmm.h>
 #include <best_fit_pmm.h>
-#include <buddy_system_pmm.h>
-#include <slub.h>
 #include <defs.h>
 #include <error.h>
 #include <memlayout.h>
@@ -10,6 +8,7 @@
 #include <sbi.h>
 #include <stdio.h>
 #include <string.h>
+#include <../sync/sync.h>
 #include <riscv.h>
 #include <dtb.h>
 
@@ -36,7 +35,7 @@ static void check_alloc_page(void);
 
 // init_pmm_manager - initialize a pmm_manager instance
 static void init_pmm_manager(void) {
-    pmm_manager = &slub_pmm_manager;
+    pmm_manager = &default_pmm_manager;
     cprintf("memory management: %s\n", pmm_manager->name);
     pmm_manager->init();
 }
@@ -49,29 +48,48 @@ static void init_memmap(struct Page *base, size_t n) {
 // alloc_pages - call pmm->alloc_pages to allocate a continuous n*PAGESIZE
 // memory
 struct Page *alloc_pages(size_t n) {
-    return pmm_manager->alloc_pages(n);
+    struct Page *page = NULL;
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        page = pmm_manager->alloc_pages(n);
+    }
+    local_intr_restore(intr_flag);
+    return page;
 }
 
 // free_pages - call pmm->free_pages to free a continuous n*PAGESIZE memory
 void free_pages(struct Page *base, size_t n) {
-    pmm_manager->free_pages(base, n);
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        pmm_manager->free_pages(base, n);
+    }
+    local_intr_restore(intr_flag);
 }
 
 // nr_free_pages - call pmm->nr_free_pages to get the size (nr*PAGESIZE)
 // of current free memory
 size_t nr_free_pages(void) {
-    return pmm_manager->nr_free_pages();
+    size_t ret;
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        ret = pmm_manager->nr_free_pages();
+    }
+    local_intr_restore(intr_flag);
+    return ret;
 }
 
-//lab2 function1 YOUR CODE
+//lab2: page initialization migrated from lab2_new.
 /* page_init - probe the physical memory from the device tree, build the Page
  * descriptor array and register every complete free physical page to the
  * current pmm manager.
  *
  * Memory layout (physical addresses; `end`/`pages` are kernel VAs, translate
  * them with PADDR() to obtain the physical addresses shown below):
- *   [DRAM_BASE, KERNEL_BEGIN_PADDR)    OpenSBI               -> reserved
- *   [KERNEL_BEGIN_PADDR, end_pa)       kernel image          -> reserved
+ *   [DRAM_BASE, kernel_begin_pa)    OpenSBI               -> reserved
+ *   [kernel_begin_pa, end_pa)       kernel image          -> reserved
  *   [pages_pa, descriptor_end)         Page descriptor array -> reserved
  *   [freemem, npage*PGSIZE)            complete free pages   -> init_memmap
  *
@@ -84,9 +102,12 @@ static void page_init(void) {
     uint64_t mem_base = get_memory_base();
     uint64_t mem_size = get_memory_size();
 
-    // The kernel image is loaded at PA KERNEL_BEGIN_PADDR and mapped at VA
+    // The kernel image is loaded at PA kernel_begin_pa and mapped at VA
     // KERNBASE, so every kernel VA maps to its PA via VA - PHYSICAL_MEMORY_OFFSET.
     va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+    // Derive the Lab2 physical bounds from the existing Lab3 mapping.
+    const uint64_t kernel_begin_pa = KERNBASE - PHYSICAL_MEMORY_OFFSET;
+    const uint64_t mapped_end = KERNTOP - PHYSICAL_MEMORY_OFFSET;
 
     // The device tree must report exactly the fixed DRAM base; any other base is
     // incompatible with the kernel's fixed loading layout.
@@ -101,14 +122,14 @@ static void page_init(void) {
 
     // Respect the kernel's supported physical-memory upper bound: never manage
     // pages beyond the mapped/addressable range.
-    if (mem_end > PHYSICAL_MEMORY_END) {
-        cprintf("page_init: memory end 0x%lx exceeds PHYSICAL_MEMORY_END, clamping\n",
+    if (mem_end > mapped_end) {
+        cprintf("page_init: memory end 0x%lx exceeds mapped_end, clamping\n",
                 (unsigned long)mem_end);
-        mem_end = PHYSICAL_MEMORY_END;
+        mem_end = mapped_end;
     }
 
     // The (possibly clamped) range must still cover the kernel image.
-    if (mem_end <= KERNEL_BEGIN_PADDR) {
+    if (mem_end <= kernel_begin_pa) {
         panic("page_init: memory does not cover the kernel image (end=0x%lx)",
               (unsigned long)mem_end);
     }
