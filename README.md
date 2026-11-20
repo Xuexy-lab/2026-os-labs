@@ -1,52 +1,72 @@
-# Lab3 — uCore 中断与异常处理
+# Lab4 — 进程管理
 
-本仓库每次操作系统实验使用独立分支。Lab3 的工程位于 `code/`，实验报告、提示词和截图位于 `report/`。
+## 文件分布说明
+
+- 一个分支对应一次实验，本分支为 `lab4`。
+- `code/` 保存本次实验工程；`report/` 保存实验报告、提示词和两张测试截图。
 
 ## 实验内容
 
-- **Trap 入口与返回**。通过 `stvec` 注册统一入口，由 `trapentry.S` 将现场保存到栈上的 `trapframe`，处理结束后恢复寄存器并执行 `sret`。
-- **时钟中断**。`trap.c` 根据 `scause` 分发 Trap。S 态时钟中断会安排下一次时钟事件并累加 `ticks`，每 100 次输出一次计数信息。
-- **异常处理**。断点和非法指令异常会打印触发地址，根据实验涉及的 16 位或 32 位指令长度推进 `tf->epc`，由统一返回流程跳过触发指令。
+基于 RISC-V 64 位 uCore，实现共享内核地址空间的内核线程管理：
 
-## 处理流程
+- **虚拟内存页操作**：通过 `page_insert()`、`page_remove()` 建立、更新和撤销映射，维护物理页引用计数及 TLB。
+- **进程创建与初始化**：初始化 PCB 和进程管理结构，创建 `idleproc`、`initproc`，准备内核栈、TrapFrame 和 context，并处理创建失败时的资源回收。
+- **进程调度**：按进程链表顺序选择可运行线程，通过页表设置和寄存器上下文切换使线程运行，并保存、恢复临界区中断状态。
+
+## 主要流程
 
 ```text
-中断或异常 → stvec → __alltraps → SAVE_ALL
-  → trap() → trap_dispatch() → 中断或异常处理函数
-  → RESTORE_ALL → sret
+内存与中断等基础初始化
+    ↓
+proc_init：建立进程管理结构，创建 idleproc 和 initproc
+    ↓
+cpu_idle → schedule → proc_run → switch_to
+    ↓
+新线程首次运行：forkret → forkrets → __trapret → kernel_thread_entry
 ```
 
 ## 运行与调试
 
-准备 RISC-V 裸机工具链、QEMU、GNU Make 和 Python 3，在 Linux 或 WSL 的 `code/` 目录执行：
+在具备 GNU Make、RISC-V 交叉工具链、QEMU、Python 3 和常用 Unix 工具的 Linux/WSL 环境中，于 `code/` 目录执行：
 
 ```bash
-make          # 构建内核
-make qemu     # 启动并观察时钟中断输出
-make grade    # 运行实验评测
-make debug    # 启动 QEMU 并等待 GDB
-make gdb      # 在另一终端连接 GDB
+make          # 编译内核
+make qemu     # 在 QEMU Virt Machine 中启动
+make grade    # 注入并运行实验评分测试
+make debug    # 启动 QEMU，等待 GDB 连接
+make gdb      # 在另一终端连接调试器
 ```
 
-Makefile 默认使用 `riscv64-unknown-elf-` 工具链前缀和 `qemu-system-riscv64`。可通过 `make GCCPREFIX=<前缀> QEMU=<可执行文件路径>` 覆盖编译工具和 QEMU。使用 `make gdb` 时，确保 `riscv64-unknown-elf-gdb` 在 PATH 中。
+默认工具链前缀为 `riscv64-unknown-elf-`，默认模拟器为 `qemu-system-riscv64`，可通过 `GCCPREFIX`、`QEMU` 覆盖，例如 `make GCCPREFIX=/path/to/bin/riscv64-unknown-elf- qemu`。`make gdb` 中的调试器命令为固定名称，需要位于 `PATH` 中。
 
-报告附有 QEMU 和评测截图。评测脚本覆盖 Trap 入口与断点返回、非法指令与异常分发，以及持续的时钟中断。
+报告记录了内存管理相关自检通过、`initproc` 成功运行，以及 PMM、进程创建、进程调度三项评分均为 `OK`，总分为 **30/30**。截图同时记录了线程入口函数指针类型警告，以及普通启动在线程退出时触发的 `process exit!!` panic；当前工程的 `do_exit()` 仍以该 panic 作为占位实现。本次上传未重新执行构建、QEMU 或评分测试。
 
 ## 项目目录
 
 ```text
-.
-├── code/
-│   ├── kern/              # 内核，包括 Trap、时钟与内存管理
-│   ├── libs/              # 公共库
-│   ├── tools/             # 链接脚本、调试与 Lab3 评测
-│   └── Makefile
-└── report/
-    ├── report.md          # Lab3 实验报告
-    ├── prompt.md          # Lab3 提示词汇总
-    ├── prompt/            # 独立提示词
-    └── images/            # 报告图片与截图
+README.md
+code/
+├── Makefile
+├── CMakeLists.txt
+├── kern/              # 内核初始化、内存管理、线程与调度等实现
+├── libs/              # 公共库与 RISC-V 接口
+└── tools/             # 链接、调试、评分及测试注入工具
+report/
+├── report.md          # 完整实验报告
+├── prompt.md          # 三个模块的提示词汇总
+├── images/
+│   ├── lab4_qemu.png
+│   └── lab4_grade.png
+└── prompt/
+    ├── module1_page_mapping.md
+    ├── module2_process_creation.md
+    └── module3_scheduling.md
 ```
+
+## 报告与提示词
 
 - [实验报告](report/report.md)
 - [提示词汇总](report/prompt.md)
+- [模块一提示词](report/prompt/module1_page_mapping.md)
+- [模块二提示词](report/prompt/module2_process_creation.md)
+- [模块三提示词](report/prompt/module3_scheduling.md)

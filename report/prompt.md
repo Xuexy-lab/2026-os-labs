@@ -1,474 +1,455 @@
-# Lab3 提示词汇总
+# Lab4 提示词汇总
 
-按模块收录实验报告中的最终提示词和独立提示词文件的原文。
+以下提示词均原文提取自 [实验报告](report.md) 第四部分，不包含本次报告整理或上传指令。
 
-## Trap 入口与上下文恢复
+## 功能模块一：虚拟内存页操作功能
 
-### 实验报告中的最终提示词
+来源：实验报告第四部分对应模块；[独立提示词](prompt/module1_page_mapping.md)。
 
-来源为[实验报告](report.md)第四节。
+````text
 
-``` text
-[PROMPT]
-
-任务：
-完成 Lab3 功能模块一：Trap 上下文恢复与 Trap 入口功能。
-
-需要修改 kern/trap/trapentry.S，补充 RESTORE_ALL 和 __alltraps 两处代码。
-
-本模块主要完成 Trap 发生后的上下文恢复，以及汇编代码到 C 语言处理函数 trap(struct trapframe *tf) 的调用衔接，使系统能够完成 Trap 进入、保存上下文、处理 Trap、恢复上下文和返回的完整过程。
-
-操作要求：
-1. 直接修改项目中的实际文件，不要只给出代码。
-2. 修改前先阅读相关代码，主要包括 trapentry.S、trap.h、trap.c、riscv.h，以及相关测试文件。
-3. 以当前项目的实际代码为准，不要直接套用其他版本的 ucore。
-4. 只修改 trapentry.S 中两个标记为 lab3 function1 YOUR CODE 的位置。
-5. 保留已经完成的 SAVE_ALL、struct trapframe、trap() 和原有的返回流程，不要修改其他功能模块的代码。
-
-输出要求：
-完成后检查代码是否与现有的上下文保存方式、TrapFrame 布局和 RISC-V 函数调用约定一致，并尽可能进行编译和测试。最后说明修改了哪些位置、实现了什么功能，以及实际进行了哪些检查。
-
-[RELY]
-
-1. 当前项目使用 RISC-V 64 位架构，libs/riscv.h 中已经定义了 LOAD、STORE 和 REGBYTES 等宏，可以直接使用。
-
-2. trapentry.S 中已经实现 SAVE_ALL，负责保存 Trap 发生时的通用寄存器和相关 CSR。执行完成后，sp 指向 TrapFrame 的起始位置。
-
-3. struct trapframe 定义在 kern/trap/trap.h 中，包含通用寄存器以及 status、epc、badvaddr、cause 等字段。需要结合实际结构体定义确定各字段的偏移，保证汇编访问顺序与 C 语言结构体布局一致。
-
-4. C 语言处理函数已经存在，接口为：
-void trap(struct trapframe *tf);
-
-5. 根据 RISC-V 函数调用约定，第一个参数通过 a0 传递，函数调用使用 ra 保存返回地址，sp 用作栈指针，调用前需要满足 16 字节对齐要求。
-
-6. 当前 trapentry.S 已经提供了基本流程：
-__alltraps -> SAVE_ALL -> 调用 trap() -> __trapret -> RESTORE_ALL -> sret
-
-[GUARANTEE]
-
-本次需要完成两个部分：
-
-1. RESTORE_ALL：根据 TrapFrame 中保存的信息恢复需要恢复的通用寄存器和相关 CSR。
-
-2. __alltraps：将当前 TrapFrame 的地址作为参数传递给 trap()，并保证函数返回后能够正确进入 __trapret。
-
-不得修改 SAVE_ALL、struct trapframe 和 trap() 的接口，也不要修改其他模块。
-
-[SPECIFICATION]
-
-1. RESTORE_ALL
-
-Pre-Condition：
-SAVE_ALL 已经完成上下文保存，当前 sp 指向有效的 TrapFrame。C 语言处理函数可能会修改 TrapFrame 中的部分内容。
-
-Post-Condition：
-正确恢复 Trap 发生前的寄存器状态和返回所需的 CSR，最终能够通过 sret 正确返回。
-
-具体要求：
-- 恢复的寄存器和 CSR 必须与 SAVE_ALL 的保存布局对应，不能遗漏需要恢复的寄存器。
-- 注意 sp 的特殊处理，必须在不再需要访问 TrapFrame 后再恢复原始 sp。
-- 如果恢复过程中使用了临时寄存器，也必须保证其原始值能够正确恢复。
-- sstatus 和 sepc 必须使用 TrapFrame 中当前保存的值，不能忽略 C 语言处理函数对它们的修改。
-- 不要擅自修改返回地址或跳过触发 Trap 的指令。
-
-2. __alltraps
-
-Pre-Condition：
-SAVE_ALL 已经执行完毕，当前 sp 指向 TrapFrame 的起始位置。
-
-Post-Condition：
-将当前 TrapFrame 正确传递给 trap(struct trapframe *tf)，处理函数返回后继续进入 __trapret。
-
-具体要求：
-- 正确传递 TrapFrame 地址，不能传递错误的指针。
-- 调用 trap() 前保证 sp 正确，并满足 RISC-V 64 位函数调用约定的栈对齐要求。
-- trap() 返回后，sp 必须仍然指向原来的 TrapFrame，不能因为函数调用导致栈指针发生偏移。
-- 保证原有的寄存器信息不会因为函数调用而丢失。
-
-验证要求：
-
-1. 阅读 tools/test_lab3_context.S，了解其中对通用寄存器保存和恢复的测试。
-2. 阅读 tools/test_lab3.c，了解 test_lab3_exception_context() 的调用过程。
-3. 阅读 tools/grade.sh，了解 Test 1 的具体验收要求。
-4. 修改完成后检查代码，确认只修改了指定的两个位置。
-5. 尽可能单独进行汇编编译检查，再根据项目实际情况尝试完整编译或测试。
-6. 如果完整测试因为 Lab2 代码尚未迁移或其他功能模块尚未完成而无法通过，不要擅自修改其他模块，应说明具体原因。
-
-最后说明代码修改情况、实现思路和实际测试结果。没有实际执行的测试不要声称已经通过。
-```
-
-### 独立提示词
-
-来源为 [trapentry_prompt.md](prompt/trapentry_prompt.md)。
-
-```text
-[PROMPT]
-
-任务：
-完成 Lab3 功能模块一：Trap 上下文恢复与 Trap 入口功能。
-
-需要修改 kern/trap/trapentry.S，补充 RESTORE_ALL 和 __alltraps 两处代码。
-
-本模块主要完成 Trap 发生后的上下文恢复，以及汇编代码到 C 语言处理函数 trap(struct trapframe *tf) 的调用衔接，使系统能够完成 Trap 进入、保存上下文、处理 Trap、恢复上下文和返回的完整过程。
-
-操作要求：
-1. 直接修改项目中的实际文件，不要只给出代码。
-2. 修改前先阅读相关代码，主要包括 trapentry.S、trap.h、trap.c、riscv.h，以及相关测试文件。
-3. 以当前项目的实际代码为准，不要直接套用其他版本的 ucore。
-4. 只修改 trapentry.S 中两个标记为 lab3 function1 YOUR CODE 的位置。
-5. 保留已经完成的 SAVE_ALL、struct trapframe、trap() 和原有的返回流程，不要修改其他功能模块的代码。
-
-输出要求：
-完成后检查代码是否与现有的上下文保存方式、TrapFrame 布局和 RISC-V 函数调用约定一致，并尽可能进行编译和测试。最后说明修改了哪些位置、实现了什么功能，以及实际进行了哪些检查。
-
-[RELY]
-
-1. 当前项目使用 RISC-V 64 位架构，libs/riscv.h 中已经定义了 LOAD、STORE 和 REGBYTES 等宏，可以直接使用。
-
-2. trapentry.S 中已经实现 SAVE_ALL，负责保存 Trap 发生时的通用寄存器和相关 CSR。执行完成后，sp 指向 TrapFrame 的起始位置。
-
-3. struct trapframe 定义在 kern/trap/trap.h 中，包含通用寄存器以及 status、epc、badvaddr、cause 等字段。需要结合实际结构体定义确定各字段的偏移，保证汇编访问顺序与 C 语言结构体布局一致。
-
-4. C 语言处理函数已经存在，接口为：
-void trap(struct trapframe *tf);
-
-5. 根据 RISC-V 函数调用约定，第一个参数通过 a0 传递，函数调用使用 ra 保存返回地址，sp 用作栈指针，调用前需要满足 16 字节对齐要求。
-
-6. 当前 trapentry.S 已经提供了基本流程：
-__alltraps -> SAVE_ALL -> 调用 trap() -> __trapret -> RESTORE_ALL -> sret
-
-[GUARANTEE]
-
-本次需要完成两个部分：
-
-1. RESTORE_ALL：根据 TrapFrame 中保存的信息恢复需要恢复的通用寄存器和相关 CSR。
-
-2. __alltraps：将当前 TrapFrame 的地址作为参数传递给 trap()，并保证函数返回后能够正确进入 __trapret。
-
-不得修改 SAVE_ALL、struct trapframe 和 trap() 的接口，也不要修改其他模块。
-
-[SPECIFICATION]
-
-1. RESTORE_ALL
-
-Pre-Condition：
-SAVE_ALL 已经完成上下文保存，当前 sp 指向有效的 TrapFrame。C 语言处理函数可能会修改 TrapFrame 中的部分内容。
-
-Post-Condition：
-正确恢复 Trap 发生前的寄存器状态和返回所需的 CSR，最终能够通过 sret 正确返回。
-
-具体要求：
-- 恢复的寄存器和 CSR 必须与 SAVE_ALL 的保存布局对应，不能遗漏需要恢复的寄存器。
-- 注意 sp 的特殊处理，必须在不再需要访问 TrapFrame 后再恢复原始 sp。
-- 如果恢复过程中使用了临时寄存器，也必须保证其原始值能够正确恢复。
-- sstatus 和 sepc 必须使用 TrapFrame 中当前保存的值，不能忽略 C 语言处理函数对它们的修改。
-- 不要擅自修改返回地址或跳过触发 Trap 的指令。
-
-2. __alltraps
-
-Pre-Condition：
-SAVE_ALL 已经执行完毕，当前 sp 指向 TrapFrame 的起始位置。
-
-Post-Condition：
-将当前 TrapFrame 正确传递给 trap(struct trapframe *tf)，处理函数返回后继续进入 __trapret。
-
-具体要求：
-- 正确传递 TrapFrame 地址，不能传递错误的指针。
-- 调用 trap() 前保证 sp 正确，并满足 RISC-V 64 位函数调用约定的栈对齐要求。
-- trap() 返回后，sp 必须仍然指向原来的 TrapFrame，不能因为函数调用导致栈指针发生偏移。
-- 保证原有的寄存器信息不会因为函数调用而丢失。
-
-验证要求：
-
-1. 阅读 tools/test_lab3_context.S，了解其中对通用寄存器保存和恢复的测试。
-2. 阅读 tools/test_lab3.c，了解 test_lab3_exception_context() 的调用过程。
-3. 阅读 tools/grade.sh，了解 Test 1 的具体验收要求。
-4. 修改完成后检查代码，确认只修改了指定的两个位置。
-5. 尽可能单独进行汇编编译检查，再根据项目实际情况尝试完整编译或测试。
-6. 如果完整测试因为 Lab2 代码尚未迁移或其他功能模块尚未完成而无法通过，不要擅自修改其他模块，应说明具体原因。
-
-最后说明代码修改情况、实现思路和实际测试结果。没有实际执行的测试不要声称已经通过。
-```
-
-
-## 中断处理
-
-### 实验报告中的最终提示词
-
-来源为[实验报告](report.md)第四节。
-
-````markdown
-[Prompt]
+[prompt]
 **任务**
-- 完成中断处理模块 void interrupt_handler(struct trapframe *tf)，根据 Trap 原因正确分类和处理中断。
+补全 `kern/mm/pmm.c` 中空缺的两个函数：
+1. `int page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm);`
+2. `void page_remove(pde_t *pgdir, uintptr_t la);`
+
+分别实现：将物理页映射到指定线性地址、安全撤销已有映射。
 
 **操作要求**
-- 直接修改并保存项目中的 kern/trap/trap.c，保持原有架构。
+直接修改项目中的实际文件，保留现有代码，只在标记位置补全，不修改其他函数。
 
 **输出要求**
-- 简要说明修改位置和验证结果，未运行的测试如实注明。
+完成文件修改后，简要说明实现要点和验证结果；未运行的测试须明确标注。
 
-[rely]
-1. 宏定义：
-- IRQ_S_TIMER：S 模式时钟中断编号。
-- TICK_NUM：每累计多少次时钟中断输出一次统计信息。
-- SHUTDOWN_AFTER：累计输出多少次统计信息后关机。
-- 其他中断编号复用框架已有宏。阈值和输出格式以实验要求及测试为准；若关机阈值缺失，不自行猜测。
-
-2. 数据结构与变量：
-- 复用 struct trapframe，通过 tf->cause 提取中断编号。
-- 复用 ticks，记录已处理的时钟中断次数。
-- 保持 tf->epc 和其他现场字段不变。
-
-3. 已有函数：
-- trap_dispatch()：沿用已有分发逻辑，由它将中断交给 interrupt_handler()。
-- clock_set_next_event()：安排下一次时钟事件。
-- 复用框架已有的统计和提示输出接口。
-- print_trapframe(tf)：输出完整 Trap 现场。
-- sbi_shutdown()：使用 libs/sbi.h 提供的关机接口。
-
-4. 修改范围：
-- 仅实现 interrupt_handler() 及必要的局部辅助定义。
-- 不修改函数签名、TrapFrame 布局、分发与恢复流程，以及其他函数或模块。
+[RELY]
+- 复用已有接口：`get_pte()`、`pte_create()`、`page2ppn()`、`pte2page()`、`page_ref_inc()`、`page_ref_dec()`、`free_page()`、`tlb_invalidate()` 等。
+- 使用现有类型和宏：`pde_t`、`pte_t`、`struct Page`、`PTE_V`、`PTE_U`、`PTE_W`、`PTE_R`。
+- 先阅读相关接口定义，确认参数和返回值含义。
 
 [GUARANTEE]
-- 实现 void interrupt_handler(struct trapframe *tf)。
-- 正确处理时钟中断、其他已知中断和未知中断。
-- 未关机时正常返回统一 Trap 恢复流程，保留原执行流的返回位置。
+- `page_insert`：
+  1. 原地址未映射：目标页引用计数加一。
+  2. 原地址映射到同一物理页：引用计数不变，仅更新权限，避免误释放。
+  3. 原地址映射到其他物理页：目标页引用计数加一；旧页引用计数减一，归零时释放。
+  4. 成功后映射到目标页，权限按 `perm` 重新设置，不残留旧权限，返回 `0`。
+  5. 获取页表项失败时返回 `-E_NO_MEM`，不改变目标页引用计数和已有映射。
+
+- `page_remove`：
+  1. 目标地址无映射时安静返回，不分配页表。
+  2. 有映射时清空 PTE，使对应 TLB 条目失效；旧页引用计数减一，归零后释放。
+  3. 返回类型为 `void`，无需返回错误码，也无需回收中间页表页。
 
 [SPECIFICATION]
-1. 中断识别：
-- 从 tf->cause 中去除表示“中断”的最高标志位，提取具体中断编号。
-- 使用局部变量保存编号，不修改 tf->cause。
-
-2. 时钟中断：
-- 识别 IRQ_S_TIMER 后，调用 clock_set_next_event()，设置下一次时钟事件。
-- 每处理一次时钟中断，ticks 恰好增加一次。
-- 当更新后的 ticks 达到 TICK_NUM 的整数倍时，按规定格式输出一次统计信息。
-- 累计输出达到 SHUTDOWN_AFTER 后，先完成该次输出，再调用 sbi_shutdown()。关机条件按输出次数判断。
-
-3. 其他中断：
-- 已知中断按类型输出框架要求的提示。
-- 未知中断调用 print_trapframe(tf) 输出完整现场。
-- 非时钟中断不更新 ticks，不重新设置时钟事件。
-
-4. 返回位置与 PC：
-- 保持 tf->epc 不变，不跳过原执行流中的指令。
-- 正常返回后，由 RESTORE_ALL 将 tf->epc 写回 sepc，再由 sret 令 PC = sepc，从原定位置继续执行。
-- 不直接修改硬件 sepc，不自行恢复上下文、执行 sret 或改变返回特权级。
-
-5. 验收条件：
-- 时钟中断能够持续按期触发，计数、输出和关机条件符合要求。
-- 其他中断能够正确区分并输出提示或完整现场。
-- 正常返回时不破坏被打断执行流的寄存器与返回状态。
+- 同步维护三个状态：PTE、物理页引用计数、TLB。
+- 插入使用 `get_pte(pgdir, la, 1)`；删除使用 `get_pte(pgdir, la, 0)`。
+- 使用 `pte_create()` 构造新 PTE，正确设置物理页号、有效位和权限。
+- 映射或权限更新后，调用 `tlb_invalidate(pgdir, la)`。
+- 重点检查：同页重复插入、替换旧页、多地址共享同一页、重复删除、页表分配失败。
 ````
 
-### 独立提示词
+## 功能模块二：进程创建及初始化功能
 
-来源为 [inr_prompt.md](prompt/inr_prompt.md)。
+来源：实验报告第四部分对应模块；[独立提示词](prompt/module2_process_creation.md)。
 
-[Prompt]
-**任务**
-- 完成中断处理模块 void interrupt_handler(struct trapframe *tf)，根据 Trap 原因正确分类和处理中断。
+````text
+**任务：**
 
-**操作要求**
-- 直接修改并保存项目中的 kern/trap/trap.c，保持原有架构。
+完成 Lab4 功能模块二：进程创建及初始化功能。
 
-**输出要求**
-- 简要说明修改位置和验证结果，未运行的测试如实注明。
+需要修改 `kern/process/proc.c`，实现以下六个函数：
 
-[rely]
-1. 宏定义：
-- IRQ_S_TIMER：S 模式时钟中断编号。
-- TICK_NUM：每累计多少次时钟中断输出一次统计信息。
-- SHUTDOWN_AFTER：累计输出多少次统计信息后关机。
-- 其他中断编号复用框架已有宏。阈值和输出格式以实验要求及测试为准；若关机阈值缺失，不自行猜测。
+```c
+static struct proc_struct *alloc_proc(void);
+void proc_init(void);
+int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags);
+int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf);
+static void copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf);
+static int copy_mm(uint32_t clone_flags, struct proc_struct *proc);
+```
 
-2. 数据结构与变量：
-- 复用 struct trapframe，通过 tf->cause 提取中断编号。
-- 复用 ticks，记录已处理的时钟中断次数。
-- 保持 tf->epc 和其他现场字段不变。
+本模块主要完成进程控制块的分配与初始化、内核线程的创建、内核栈及执行上下文的准备，以及进程登记和唤醒，使系统能够创建 `idleproc` 和 `initproc`，为后续进程调度提供基础。
 
-3. 已有函数：
-- trap_dispatch()：沿用已有分发逻辑，由它将中断交给 interrupt_handler()。
-- clock_set_next_event()：安排下一次时钟事件。
-- 复用框架已有的统计和提示输出接口。
-- print_trapframe(tf)：输出完整 Trap 现场。
-- sbi_shutdown()：使用 libs/sbi.h 提供的关机接口。
+**操作要求：**
 
-4. 修改范围：
-- 仅实现 interrupt_handler() 及必要的局部辅助定义。
-- 不修改函数签名、TrapFrame 布局、分发与恢复流程，以及其他函数或模块。
+1. 直接修改项目中的实际文件，不要只给出代码。
+2. 修改前阅读 `proc.c`、`proc.h`、`entry.S`、`trap.h`、`pmm.h`、`memlayout.h`、`sched.c`、`switch.S` 等相关文件。
+3. 以当前项目实际代码为准，不要直接套用其他版本的 uCore。
+4. 主要修改 `proc.c` 中标记为 `LAB4 function2 YOUR CODE` 的位置，必要时补充头文件和函数声明。
+5. 保留已经实现的内存管理、Trap 处理和进程调度代码，不修改其他功能模块。
 
-[GUARANTEE]
-- 实现 void interrupt_handler(struct trapframe *tf)。
-- 正确处理时钟中断、其他已知中断和未知中断。
-- 未关机时正常返回统一 Trap 恢复流程，保留原执行流的返回位置。
+**[RELY]**
 
-[SPECIFICATION]
-1. 中断识别：
-- 从 tf->cause 中去除表示“中断”的最高标志位，提取具体中断编号。
-- 使用局部变量保存编号，不修改 tf->cause。
+1. 当前项目使用 RISC-V 64 位架构，已经完成物理内存管理、Sv39 页表及基本 Trap 处理机制。
 
-2. 时钟中断：
-- 识别 IRQ_S_TIMER 后，调用 clock_set_next_event()，设置下一次时钟事件。
-- 每处理一次时钟中断，ticks 恰好增加一次。
-- 当更新后的 ticks 达到 TICK_NUM 的整数倍时，按规定格式输出一次统计信息。
-- 累计输出达到 SHUTDOWN_AFTER 后，先完成该次输出，再调用 sbi_shutdown()。关机条件按输出次数判断。
+2. `proc.h` 中已经定义 `struct proc_struct`、`struct context` 和进程状态枚举，可直接使用。
 
-3. 其他中断：
-- 已知中断按类型输出框架要求的提示。
-- 未知中断调用 print_trapframe(tf) 输出完整现场。
-- 非时钟中断不更新 ticks，不重新设置时钟事件。
+3. `proc.c` 中已经提供 `setup_kstack()`、`put_kstack()`、`get_pid()`、`hash_proc()`、`find_proc()`、`forkret()`、`init_main()` 等辅助函数。
 
-4. 返回位置与 PC：
-- 保持 tf->epc 不变，不跳过原执行流中的指令。
-- 正常返回后，由 RESTORE_ALL 将 tf->epc 写回 sepc，再由 sret 令 PC = sepc，从原定位置继续执行。
-- 不直接修改硬件 sepc，不自行恢复上下文、执行 sret 或改变返回特权级。
+4. 已有 `kmalloc()`、`kfree()`、`alloc_pages()`、`free_pages()`、`list_init()`、`list_add()`、`wakeup_proc()` 等内存分配与进程管理接口。
 
-5. 验收条件：
-- 时钟中断能够持续按期触发，计数、输出和关机条件符合要求。
-- 其他中断能够正确区分并输出提示或完整现场。
-- 正常返回时不破坏被打断执行流的寄存器与返回状态。
+5. `entry.S` 中的 `kernel_thread_entry` 使用 `s0` 保存线程执行函数地址，`s1` 保存函数参数。
 
-## 异常处理
+6. 新线程首次运行依赖 `switch_to -> forkret -> forkrets -> __trapret`，其中 `forkret()` 已经实现。
 
-### 实验报告中的最终提示词
+7. 当前实验仅要求创建内核线程，所有内核线程共享内核地址空间，不需要复制独立的用户地址空间。
 
-来源为[实验报告](report.md)第四节。
+**[GUARANTEE]**
 
-```markdown
-[Prompt]
+本次需要完成六个函数：
 
-**任务**
-- 完成异常处理模块 void exception_handler(struct trapframe *tf)，根据 Trap 原因正确分类和处理异常。
+1. `alloc_proc()`：分配并初始化进程控制块。
+2. `proc_init()`：初始化进程管理结构，创建 `idleproc` 和 `initproc`。
+3. `kernel_thread()`：将普通函数和参数封装为内核线程的初始执行现场。
+4. `do_fork()`：完成新线程的资源分配、PID 分配、登记与唤醒。
+5. `copy_thread()`：复制 TrapFrame 并初始化新线程的上下文。
+6. `copy_mm()`：处理内核线程共享地址空间的初始化。
 
-**操作要求**
-- 直接修改并保存项目中的 kern/trap/trap.c。
+不得修改已有的 `proc_run()`、`cpu_idle()`、`schedule()`、`switch_to()` 等模块三函数，也不要实现超出本次实验要求的用户进程功能。
 
-**输出要求**
-- 简要说明修改位置和验证结果，未运行的测试如实注明。
+**[SPECIFICATION]**
+
+**1. alloc_proc**
+
+Pre-Condition：
+
+内核堆分配器已经初始化，可以通过 `kmalloc()` 分配进程控制块。
+
+Post-Condition：
+
+返回完成基础初始化的 `proc_struct`，分配失败返回 `NULL`。
+
+具体要求：
+
+- 分配 PCB 并清零所有字段。
+- 设置初始状态为 `PROC_UNINIT`、PID 为 `-1`。
+- 初始化内核栈、地址空间、上下文、TrapFrame、调度标记等字段。
+- 初始化进程链表和哈希链表节点。
+- 设置有效的内核页表地址。
+
+**2. proc_init**
+
+Pre-Condition：
+
+进程管理所依赖的内存管理和相关基础设施已经初始化。
+
+Post-Condition：
+
+成功建立 `idleproc`、`initproc` 和 `current`，完成进程管理全局结构初始化。
+
+具体要求：
+
+- 初始化 `proc_list` 和 `hash_list`。
+- 创建 `idleproc`，设置 PID 为 0、状态为 `PROC_RUNNABLE`。
+- 复用启动内核栈 `bootstack`，设置 `current = idleproc`。
+- 设置 `idleproc->need_resched = 1`。
+- 调用 `kernel_thread()` 创建执行 `init_main()` 的 `initproc`。
+- 使用 `find_proc()` 找到新线程，设置名称并检查 PID。
+- 正确维护 `nr_process`。
+
+**3. kernel_thread**
+
+Pre-Condition：
+
+提供有效的内核线程入口函数 `fn` 和参数 `arg`。
+
+Post-Condition：
+
+完成初始 TrapFrame 构造，并调用 `do_fork()` 返回新线程 PID 或负错误码。
+
+具体要求：
+
+- 清零临时 `trapframe`。
+- 将 `fn` 和 `arg` 分别保存到 `s0`、`s1` 对应字段。
+- 设置 `epc` 指向 `kernel_thread_entry`。
+- 正确设置 `sstatus` 中的 SPP、SPIE 和 SIE 位。
+- 调用 `do_fork()` 创建共享内核地址空间的线程。
+
+**4. do_fork**
+
+Pre-Condition：
+
+提供合法的创建标志、栈地址和 TrapFrame，内存分配及进程管理接口可用。
+
+Post-Condition：
+
+创建成功返回 PID，失败返回负错误码并释放已经申请的资源。
+
+具体要求：
+
+- 检查进程数量上限。
+- 调用 `alloc_proc()` 分配 PCB。
+- 设置父进程，申请内核栈。
+- 调用 `copy_mm()` 和 `copy_thread()`。
+- 通过 `get_pid()` 分配 PID。
+- 将线程加入进程链表和 PID 哈希表。
+- 更新进程数量，并使用 `wakeup_proc()` 将线程设置为 `PROC_RUNNABLE`。
+- 在必要的临界区内关闭中断。
+- 正确处理资源分配失败时的清理流程。
+
+**5. copy_thread**
+
+Pre-Condition：
+
+新线程已分配内核栈，且存在有效的初始 TrapFrame。
+
+Post-Condition：
+
+新线程具备首次上下文切换和执行所需的 TrapFrame、context。
+
+具体要求：
+
+- 在新内核栈顶部安放 TrapFrame。
+- 复制传入的 TrapFrame。
+- 设置子线程返回值 `a0 = 0`。
+- 正确设置新线程栈指针。
+- 将 `context.ra` 设置为 `forkret`。
+- 将 `context.sp` 设置为新 TrapFrame 的地址。
+- 保证初始化布局与后续汇编恢复流程一致。
+
+**6. copy_mm**
+
+Pre-Condition：
+
+当前实验只运行共享内核地址空间的内核线程。
+
+Post-Condition：
+
+新线程使用有效的内核地址空间，成功返回 0。
+
+具体要求：
+
+- 不进行用户地址空间复制。
+- 将 `mm` 设置为 `NULL`。
+- 设置线程的内核页表地址。
+- 保留函数接口，供后续用户进程实验扩展。
+
+**验证要求：**
+
+1. 检查 `proc.h` 中的 PCB 字段是否全部初始化。
+2. 检查 `entry.S` 和 `switch.S`，确认寄存器及 context 布局一致。
+3. 检查 `trap.h` 和 Trap 返回汇编代码，确认 TrapFrame 字段与首次运行流程匹配。
+4. 检查进程创建失败时是否存在资源泄漏。
+5. 确认只修改模块二对应位置及必要的头文件引用。
+6. 尽可能执行 `make` 和 QEMU 测试，检查 `initproc` 是否成功运行。
+7. 如果其他模块未完成导致测试失败，不要擅自修改其他模块，应说明具体原因。
+
+````
+
+## 功能模块三：进程调度
+
+来源：实验报告第四部分对应模块；[独立提示词](prompt/module3_scheduling.md)。
+
+````text
+[PROMPT]
+
+任务：完成 Lab4 的进程调度功能，使系统能够从进程链表中选择可运行的内核线程，并通过上下文切换使不同线程真正运行起来。
+
+涉及文件及功能：
+1. kern/process/proc.c：实现 cpu_idle() 和 proc_run()。
+2. kern/schedule/sched.c：实现 schedule()。
+3. kern/process/switch.S：实现 switch_to()。
+
+操作要求：
+必须直接修改项目中的实际文件，只允许在上述三个文件中对应的 //LAB4 function3 YOUR CODE 标记下方填写代码。
+
+严格遵守以下要求：
+- 只能在 function3 YOUR CODE 标记下方编写代码。
+- 不允许修改标记区域之外的任何代码。
+- 不允许修改其他文件，包括头文件。
+- 不允许增加其他位置的函数、变量、宏或 include。
+- 不允许修改其他功能的占位区域。
+- 保留原有代码、注释、函数声明和标记。
+- 不要新建文件。
+
+输出要求：
+直接进行文件操作，完成整个进程调度功能。使用下面的 RELY、GUARANTEE 和 SPECIFICATION 中的信息，以工程中的实际定义为准，不要引入无关功能。
 
 [RELY]
 
-1. 宏定义：
-- CAUSE_ILLEGAL_INSTRUCTION：非法指令异常。
-- CAUSE_BREAKPOINT：断点异常。
+1. 数据结构（kern/process/proc.h）
 
-2. 数据结构：
-- 复用 struct trapframe，不修改布局。
-- tf->cause：判断异常类型。
-- tf->epc：读取和调整 Trap 返回位置。
+struct context 保存进程切换需要的寄存器，包含：
+ra、sp、s0、s1、s2、s3、s4、s5、s6、s7、s8、s9、s10、s11，共14个寄存器，类型均为 uintptr_t。
 
-3. 已有函数：
-- print_trapframe(tf)：输出完整现场。
-- cprintf() 等已有输出接口。
-- 具体定义和输出格式以框架及测试要求为准。
+struct proc_struct 中与本功能有关的成员：
+- state：进程状态
+- runs：运行次数
+- need_resched：是否需要重新调度
+- context：进程上下文
+- pgdir：页表根节点的物理地址
+- list_link：进程链表节点
 
-4. 修改范围：
-- 仅修改 exception_handler() 及必要的局部辅助定义。
-- 不修改函数签名、已有分发逻辑、其他函数或内核模块。
+进程状态：
+PROC_UNINIT、PROC_SLEEPING、PROC_RUNNABLE、PROC_ZOMBIE。
+
+2. 全局变量和链表
+
+- proc_list：所有进程的双向循环链表。
+- current：当前运行的进程。
+- idleproc：空闲进程。
+
+已有链表接口：
+list_next()、list_empty()、le2proc()。
+
+3. 中断控制（kern/sync/sync.h）
+
+已有接口：
+local_intr_save(intr_flag)
+local_intr_restore(intr_flag)
+
+需要正确保存和恢复原来的中断状态，保证调度和进程切换过程的原子性。
+
+4. 页表与 RISC-V 接口
+
+- boot_pgdir_pa：内核页表根节点的物理地址。
+- SATP_MODE_SV39：Sv39 分页模式，值为 8。
+- RISCV_PGSHIFT：页偏移位数，值为 12。
+- read_csr()、write_csr()：读取和写入 CSR。
+- flush_tlb()：刷新 TLB。
+
+本实验使用 RISC-V 64 位架构，proc_struct 中的 pgdir 保存页表根节点的物理地址。
+
+satp 使用 Sv39 模式，MODE 位需要放在最高4位，PPN 由页表根物理地址右移 RISCV_PGSHIFT 得到。
+
+注意：不要使用 libs/riscv.h 中的 lsatp()，它是 Sv32 遗留接口。页表切换可以参考 kern/mm/pmm.c 中 enable_paging() 的实现。
+
+5. 上下文切换相关代码
+
+项目中已有：
+- forkret()：新线程第一次运行时的入口。
+- forkrets()：将新线程的 trapframe 交给异常返回代码。
+- __trapret：恢复 trapframe。
+- kernel_thread_entry：进入内核线程实际执行函数。
+
+新线程第一次运行时，需要保证原有的首次运行恢复链路能够正常工作。
 
 [GUARANTEE]
 
-- 实现 void exception_handler(struct trapframe *tf)。
-- 正确处理非法指令、断点及其他异常，并与统一 Trap 返回流程衔接。
-- 除规定的 tf->epc 调整外，保持其他现场不变。
+必须实现以下四个函数，函数签名保持一致：
 
-[SPECIFICATION]
-
-1. 非法指令异常：
-- 按规定格式输出 “Illegal instruction at ...”，包含调整前的异常地址。
-- 根据实际指令长度更新 tf->epc，跳过触发指令。
-
-2. 断点异常：
-- 按规定格式输出 “Breakpoint at ...”，包含调整前的断点地址。
-- 区分 16 位压缩断点和 32 位普通断点，分别增加 2 或 4 字节。
-
-3. 指令长度：
-- 根据实际编码判断实验涉及的 16/32 位指令长度。
-- 不按异常类型固定长度，不统一增加固定偏移。
-
-4. 其他异常：
-- 调用 print_trapframe(tf)，保持 tf->epc 不变，不额外实现恢复策略。
-
-5. 返回位置与 PC：
-- 设触发异常的指令地址为 A，指令长度为 L。
-- 对本实验要求跳过的非法指令和断点异常，将 tf->epc 更新为 A + L；其他异常保持不变。
-- 修改 tf->epc 不会立即改变 PC，处理函数仍正常执行并返回。
-- 后续 RESTORE_ALL 将 tf->epc 写回 sepc，sret 再令 PC = sepc，使指定异常返回后执行下一条指令。
-- 不直接修改硬件 sepc，不自行恢复上下文、执行 sret 或改变返回特权级。
-
-6. 验收条件：
-- 输出符合规定格式。
-- 指定异常返回后继续执行下一条指令，不反复触发同一异常。
-- 其他异常输出现场且不改变返回位置。
-- 不破坏被打断执行流的寄存器与返回状态。
+```c
+void cpu_idle(void);
+void schedule(void);
+void proc_run(struct proc_struct *proc);
+void switch_to(struct context *from, struct context *to);
 ```
 
-### 独立提示词
+对应文件：
+- cpu_idle()、proc_run()：kern/process/proc.c
+- schedule()：kern/schedule/sched.c
+- switch_to()：kern/process/switch.S
 
-来源为 [exc_prompt.md](prompt/exc_prompt.md)。
-
-[Prompt]
-**任务**
-- 完成异常处理模块 void exception_handler(struct trapframe *tf)，根据 Trap 原因正确分类和处理异常。
-
-**操作要求**
-- 直接修改并保存项目中的 kern/trap/trap.c。
-
-**输出要求**
-- 简要说明修改位置和验证结果，未运行的测试如实注明。
-
-[rely]
-1. 宏定义：
-- CAUSE_ILLEGAL_INSTRUCTION：非法指令异常。
-- CAUSE_BREAKPOINT：断点异常。
-
-2. 数据结构：
-- 复用 struct trapframe，不修改布局。
-- tf->cause：判断异常类型。
-- tf->epc：读取和调整 Trap 返回位置。
-
-3. 已有函数：
-- print_trapframe(tf)：输出完整现场。
-- cprintf() 等已有输出接口。
-- 具体定义和输出格式以框架及测试要求为准。
-
-4. 修改范围：
-- 仅修改 exception_handler() 及必要的局部辅助定义。
-- 不修改函数签名、已有分发逻辑、其他函数或内核模块。
-
-[GUARANTEE]
-- 实现 void exception_handler(struct trapframe *tf)。
-- 正确处理非法指令、断点及其他异常，并与统一 Trap 返回流程衔接。
-- 除规定的 tf->epc 调整外，保持其他现场不变。
+只能在指定的 function3 YOUR CODE 区域完成上述函数，不允许增加其他辅助函数或修改公开接口。
 
 [SPECIFICATION]
-1. 非法指令异常：
-- 按规定格式输出 “Illegal instruction at ...”，包含调整前的异常地址。
-- 根据实际指令长度更新 tf->epc，跳过触发指令。
 
-2. 断点异常：
-- 按规定格式输出 “Breakpoint at ...”，包含调整前的断点地址。
-- 区分 16 位压缩断点和 32 位普通断点，分别增加 2 或 4 字节。
+## 1. cpu_idle()
 
-3. 指令长度：
-- 根据实际编码判断实验涉及的 16/32 位指令长度。
-- 不按异常类型固定长度，不统一增加固定偏移。
+Pre-Condition：
+当前运行的是已经初始化的空闲线程，进程管理结构已经建立。
 
-4. 其他异常：
-- 调用 print_trapframe(tf)，保持 tf->epc 不变，不额外实现恢复策略。
+Post-Condition：
+空闲线程持续运行，在需要重新调度时主动让出 CPU，使其他可运行线程有机会执行。
 
-5. 返回位置与 PC：
-- 设触发异常的指令地址为 A，指令长度为 L。
-- 对本实验要求跳过的非法指令和断点异常，将 tf->epc 更新为 A + L；其他异常保持不变。
-- 修改 tf->epc 不会立即改变 PC，处理函数仍正常执行并返回。
-- 后续 RESTORE_ALL 将 tf->epc 写回 sepc，sret 再令 PC = sepc，使指定异常返回后执行下一条指令。
-- 不直接修改硬件 sepc，不自行恢复上下文、执行 sret 或改变返回特权级。
+Case 1：
+当前线程不需要重新调度时，继续保持空闲循环。
 
-6. 验收条件：
-- 输出符合规定格式。
-- 指定异常返回后继续执行下一条指令，不反复触发同一异常。
-- 其他异常输出现场且不改变返回位置。
-- 不破坏被打断执行流的寄存器与返回状态。
+Case 2：
+当前线程需要重新调度时，调用 schedule()，调度返回后继续检查是否需要再次调度。
+
+Requirements：
+该函数不会正常返回。
+
+## 2. schedule()
+
+Pre-Condition：
+进程链表已经初始化，当前进程和空闲进程有效，链表中的进程具有合法状态。
+
+Post-Condition：
+完成一次调度选择，将当前进程的 need_resched 清零，并选择合适的可运行进程交给 CPU 执行。
+
+Case 1：
+当前进程是 idleproc 时，从 proc_list 链表头开始查找其他处于 PROC_RUNNABLE 状态的进程。
+
+Case 2：
+当前进程不是 idleproc 时，从当前进程的下一个链表节点开始查找，按照循环链表顺序寻找下一个处于 PROC_RUNNABLE 状态的进程，实现轮转调度。
+
+Case 3：
+遍历完成后没有找到其他可运行进程时，使用 idleproc 作为保底进程。
+
+Case 4：
+选出的进程就是 current 时，不进行无意义的重复切换。
+
+Requirements：
+- 只能选择 PROC_RUNNABLE 状态的普通进程。
+- 正确处理循环链表的头节点、尾节点和空链表情况，不能遗漏节点或无限循环。
+- idleproc 作为没有其他可运行进程时的保底选择。
+- 每次调度都应清除当前进程的 need_resched。
+- 调度选择和切换过程必须保证原子性，正确处理临界区中的中断状态。
+- 恢复进入 schedule 前的中断状态，不能无条件开启中断。
+- 不额外引入优先级、时间片等其他调度策略。
+
+## 3. proc_run()
+
+Pre-Condition：
+传入的进程控制块已经完成必要初始化，具有有效的进程上下文和页表信息。
+
+Post-Condition：
+目标进程成为当前运行进程，CPU 使用目标进程对应的页表，并恢复目标进程的执行现场。
+
+Case 1：
+目标进程就是当前进程时，不需要进行切换。
+
+Case 2：
+目标进程与当前进程不同时，完成当前进程和目标进程之间的切换，使目标进程成为新的 current。
+
+Case 3：
+目标进程切换后，CPU 使用其对应的 Sv39 页表，地址转换和 TLB 状态保持正确。
+
+Requirements：
+- 更新 current、切换页表和切换上下文的过程必须保持原子性。
+- 正确处理 satp 的 Sv39 模式和物理页号，不能混淆物理地址与物理页号。
+- 写入 satp 后正确刷新 TLB。
+- 正确保存和恢复原来的中断状态。
+- 不能破坏原进程的上下文和内核栈。
+- 不要重新初始化目标进程的 context 或 trapframe。
+
+## 4. switch_to()
+
+Pre-Condition：
+传入两个有效的 struct context，分别表示切换前和切换后的进程上下文。
+
+Post-Condition：
+切换前进程需要保存的寄存器状态得到保留，切换后进程的寄存器状态得到恢复，CPU 能够从新进程原来的执行位置继续运行。
+
+Case 1：
+普通进程切换时，能够正确保存旧进程的执行现场，并恢复新进程之前保存的现场，使其以后可以继续执行。
+
+Case 2：
+新线程第一次运行时，能够正确使用预先初始化的上下文进入 forkret，并继续完成原有的首次运行恢复过程。
+
+Requirements：
+- 保存和恢复的寄存器必须与 struct context 完全对应，包括 ra、sp、s0~s11。
+- 严格按照结构体字段顺序确定寄存器偏移，不能出现错位。
+- 当前工程使用 RV64，每个 uintptr_t 占8字节。
+- 遵循 RISC-V 函数调用约定，只保存上下文切换所需要的寄存器，不要把整个 trapframe 当作 context 保存。
+- 不要破坏新线程第一次运行所依赖的 ra 和 sp。
+- 不要修改现有的 forkrets、__trapret 和 kernel_thread_entry。
+
+[最终检查]
+
+1. 检查四个函数是否全部实现，函数签名是否正确。
+2. 检查所有新增代码是否严格位于三个 function3 YOUR CODE 标记下方。
+3. 检查是否有任何标记区域以外的代码被修改。
+4. 检查上下文结构体与汇编寄存器偏移是否一致。
+5. 检查调度时的各种进程状态和链表边界。
+6. 检查中断状态是否正确保存和恢复。
+7. 检查 Sv39 页表切换和 TLB 刷新。
+8. 检查新线程第一次运行的恢复链路。
+9. 参考 tools/test_lab4.c 中的 test_lab4_schedule，检查多个线程是否都能获得运行机会。
+10. 使用工程现有编译配置检查修改的 C 文件和汇编文件。如果完整构建或运行测试受到其他未完成代码的影响，说明具体原因，不要修改允许范围以外的代码。
+
+完成后简要说明修改的文件、实现的功能、编译和测试结果，以及尚未验证的内容。
+````
+
